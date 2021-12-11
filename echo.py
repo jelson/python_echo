@@ -1,23 +1,58 @@
 #!/usr/bin/env python3
 
+import argparse
 import codecs
+import json
 import socket
 import socketserver
 import sys
 import threading
 
 PORT = 7777
+MAGIC_HEADER = "magicheader"
 
 def say(s):
     print(s)
     sys.stdout.flush()
 
-def process(data, debugstr):
-    say(f"{debugstr}: received {len(data)} bytes")
-    s = data.decode("utf8", errors='ignore')
-    rot = codecs.encode(s, "rot13")
-    return rot.encode("utf8")
+class ConnStats:
+    def __init__(self):
+        self.packets_received = set()
+        self.total_packets = None
+        self.total_length = 0
+        self.nonce = None
 
+    def receive(self, fields, data):
+        fields['packet_num'] = int(fields['packet_num'])
+        fields['total_packets'] = int(fields['total_packets'])
+
+        if self.nonce:
+            assert(self.nonce == fields['nonce'])
+            assert(self.total_packets == fields['total_packets'])
+        else:
+            self.nonce = fields['nonce']
+            self.total_packets = fields['total_packets']
+
+        packet_num = int(fields['packet_num'])
+        assert(packet_num >= 0 and packet_num < self.total_packets)
+
+        if packet_num not in self.packets_received:
+            self.packets_received.add(packet_num)
+            self.total_length += len(data)
+
+        say(f"Nonce {self.nonce}: received {len(self.packets_received)}/{self.total_packets}, total {self.total_length} bytes")
+
+class StatsCollector:
+    def __init__(self):
+        self.stats = {}
+
+    def receive(self, fields, data):
+        nonce = fields['nonce']
+
+        if nonce not in self.stats:
+            self.stats[nonce] = ConnStats()
+
+        self.stats[nonce].receive(fields, data)
 
 class TCPEchoHandler(socketserver.BaseRequestHandler):
     def handle(self):
@@ -32,12 +67,7 @@ class TCPEchoHandler(socketserver.BaseRequestHandler):
                 say(f"{debugstr}: closed")
                 return
 
-            self.request.sendall(process(data, debugstr))
-
-class ThreadedTCPEchoServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    allow_reuse_address = True
-    address_family = socket.AF_INET6
-    debugstr = "TCP echo server"
+            self.request.sendall(self.server.process(data, debugstr))
 
 class UDPEchoHandler(socketserver.DatagramRequestHandler):
     def handle(self):
@@ -45,9 +75,35 @@ class UDPEchoHandler(socketserver.DatagramRequestHandler):
         debugstr = f"{self.client_address} UDP datagram"
 
         data = self.rfile.read(100000)
-        self.wfile.write(process(data, debugstr))
+        self.wfile.write(self.server.process(data, debugstr))
 
-class ThreadedUDPEchoServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
+class ServerBaseMixIn:
+    stats = StatsCollector()
+
+    def process(self, data, debugstr):
+        say(f"{debugstr}: received {len(data)} bytes")
+        s = data.decode("utf8", errors='ignore')
+
+        # check and see if this is a packet with metadata that let us compute
+        # statistics
+        if len(s) > len(MAGIC_HEADER) and s[0:len(MAGIC_HEADER)] == MAGIC_HEADER:
+            magic_header = s.split('\n')[0]
+            fields = dict(zip(
+                ['magic', 'nonce', 'packet_num', 'total_packets'],
+                magic_header.split(':')))
+            say(json.dumps(fields, indent=2))
+            self.stats.receive(fields, data)
+
+        # return rot13'd
+        rot = codecs.encode(s, "rot13")
+        return rot.encode("utf8")
+
+class ThreadedTCPEchoServer(socketserver.ThreadingMixIn, socketserver.TCPServer, ServerBaseMixIn):
+    allow_reuse_address = True
+    address_family = socket.AF_INET6
+    debugstr = "TCP echo server"
+
+class ThreadedUDPEchoServer(socketserver.ThreadingMixIn, socketserver.UDPServer, ServerBaseMixIn):
     allow_reuse_address = True
     address_family = socket.AF_INET6
     debugstr = "UDP echo server"
@@ -58,12 +114,25 @@ class Runner(threading.Thread):
         self.server = server
 
     def run(self):
-        say(f"Starting {self.server.debugstr}")
+        say(f"Starting {self.server.debugstr} on port {self.server.server_address}")
         self.server.serve_forever()
 
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--port', '-p',
+        help='Port number',
+        action='store',
+        type=int,
+        default=PORT,
+    )
+    return parser.parse_args(sys.argv[1:])
+
 if __name__ == "__main__":
-    tcp = Runner(ThreadedTCPEchoServer(('::', PORT), TCPEchoHandler))
+    args = get_args()
+
+    tcp = Runner(ThreadedTCPEchoServer(('::', args.port), TCPEchoHandler))
     tcp.start()
 
-    udp = Runner(ThreadedUDPEchoServer(('::', PORT), UDPEchoHandler))
+    udp = Runner(ThreadedUDPEchoServer(('::', args.port), UDPEchoHandler))
     udp.start()
