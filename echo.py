@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+import cherrypy
 import codecs
+import datetime
 import json
 import socket
 import socketserver
@@ -11,9 +13,14 @@ import threading
 PORT = 7777
 MAGIC_HEADER = "magicheader"
 
+LOGFILE_NAME = "/mnt/storage/logs/echo/echolog"
+logfile = open(LOGFILE_NAME, "a")
+
 def say(s):
     print(s)
     sys.stdout.flush()
+    logfile.write(f"{datetime.datetime.now()}: {s}\n")
+    logfile.flush()
 
 class ConnStats:
     def __init__(self):
@@ -91,7 +98,7 @@ class ServerBaseMixIn:
             fields = dict(zip(
                 ['magic', 'nonce', 'packet_num', 'total_packets'],
                 magic_header.split(':')))
-            say(json.dumps(fields, indent=2))
+            say(f"{debugstr}: got magic header: {json.dumps(fields)}")
             self.stats.receive(fields, data)
 
         # return rot13'd
@@ -117,6 +124,14 @@ class Runner(threading.Thread):
         say(f"Starting {self.server.debugstr} on port {self.server.server_address}")
         self.server.serve_forever()
 
+class EchoWebHandler():
+    def __init__(self):
+        pass
+
+    @cherrypy.expose
+    def log(self):
+        return "<pre>" + open(LOGFILE_NAME).read()
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -136,3 +151,10 @@ if __name__ == "__main__":
 
     udp = Runner(ThreadedUDPEchoServer(('::', args.port), UDPEchoHandler))
     udp.start()
+
+    cherrypy.config.update({
+        'server.socket_host': '::',
+        'server.socket_port': 16000,
+        'server.socket_timeout': 30,
+    })
+    cherrypy.quickstart(EchoWebHandler())
