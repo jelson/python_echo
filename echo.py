@@ -10,17 +10,13 @@ import socketserver
 import sys
 import threading
 
+from util import say
+import database
+
 PORT = 7777
 MAGIC_HEADER = "magicheader"
-
-LOGFILE_NAME = "/mnt/storage/logs/echo/echolog"
-logfile = open(LOGFILE_NAME, "a")
-
-def say(s):
-    print(s)
-    sys.stdout.flush()
-    logfile.write(f"{datetime.datetime.now()}: {s}\n")
-    logfile.flush()
+DBNAME = "echostats"
+TABLENAME = "receptions"
 
 class ConnStats:
     def __init__(self):
@@ -86,6 +82,7 @@ class UDPEchoHandler(socketserver.DatagramRequestHandler):
 
 class ServerBaseMixIn:
     stats = StatsCollector()
+    db = database.DatabaseBatcher(DBNAME, TABLENAME)
 
     def process(self, data, debugstr):
         say(f"{debugstr}: received {len(data)} bytes")
@@ -93,13 +90,21 @@ class ServerBaseMixIn:
 
         # check and see if this is a packet with metadata that let us compute
         # statistics
-        if len(s) > len(MAGIC_HEADER) and s[0:len(MAGIC_HEADER)] == MAGIC_HEADER:
-            magic_header = s.split('\n')[0]
-            fields = dict(zip(
-                ['magic', 'nonce', 'packet_num', 'total_packets'],
-                magic_header.split(':')))
-            say(f"{debugstr}: got magic header: {json.dumps(fields)}")
-            self.stats.receive(fields, data)
+        try:
+            if len(s) > len(MAGIC_HEADER) and s[0:len(MAGIC_HEADER)] == MAGIC_HEADER:
+                magic_header = s.split('\n')[0]
+                fields = dict(zip(
+                    ['magic', 'nonce', 'packet_num', 'total_expected'],
+                    magic_header.split(':')))
+                fields['payload_len'] = len(data)
+                say(f"{debugstr}: got magic header: {json.dumps(fields)}")
+                self.stats.receive(fields, data)
+
+                del data['magic']
+                self.db.insert_batch(fields)
+
+        except Exception as e:
+            say("couldn't process packet: {e}")
 
         # return rot13'd
         rot = codecs.encode(s, "rot13")
