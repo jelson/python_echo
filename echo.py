@@ -55,8 +55,7 @@ class StatsCollector:
         self.stats[nonce].receive(fields, data)
 
         del fields['magic']
-        self.db.insert_batch([fields])
-
+        self.db.insert(fields)
 
 class TCPEchoHandler(socketserver.BaseRequestHandler):
     def handle(self):
