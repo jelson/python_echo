@@ -27,7 +27,7 @@ class DatabaseBatcher(threading.Thread):
     def get_raw_db(self):
         return self.db
 
-    # Data is a list of dicts mapping column name to value
+    # 'record' is a single record, a dict that maps column name to value
     def insert(self, record):
         with self.lock:
             self.cache.append(record)
