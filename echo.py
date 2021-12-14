@@ -5,9 +5,11 @@ import cherrypy
 import codecs
 import datetime
 import json
+import psycopg2
 import socket
 import socketserver
 import sys
+import tabulate
 import threading
 
 from util import say, LOGFILE_NAME
@@ -138,11 +140,44 @@ class Runner(threading.Thread):
 
 class EchoWebHandler():
     def __init__(self):
-        pass
+        self.db = psycopg2.connect(database=DBNAME)
 
     @cherrypy.expose
     def log(self):
         return "<pre>" + open(LOGFILE_NAME).read()
+
+    @cherrypy.expose
+    def summary(self):
+        style = """
+           <html>
+           <head>
+           <style> 
+             table, th, td { border: 1px solid black; border-collapse: collapse; }
+             th, td { padding: 5px; }
+           </style>
+           </head>
+        """
+
+        stmt = """
+            SELECT
+               nonce AS "Nonce",
+               MIN(address) AS "IP Addr",
+               MIN("time") AS "First Packet",
+               MAX("time") AS "Last Packet",
+               MAX(total_expected) AS "Packets Expected",
+               COUNT(DISTINCT(packet_num)) AS "Unique Packets Received",
+               COUNT(*) AS "Received Incl. Duplicates"
+            FROM receptions
+            GROUP BY nonce
+            ORDER BY "First Packet" desc;
+        """
+        cursor = self.db.cursor()
+        cursor.execute(stmt)
+        result = cursor.fetchall()
+        result.insert(0, [desc[0] for desc in cursor.description])
+        self.db.commit()
+        return style + tabulate.tabulate(result, tablefmt='html')
+        
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -169,4 +204,4 @@ if __name__ == "__main__":
         'server.socket_port': args.port - DEFAULT_PORT + 16000,
         'server.socket_timeout': 30,
     })
-    cherrypy.quickstart(EchoWebHandler())
+    cherrypy.quickstart(EchoWebHandler(), script_name='/echo')
