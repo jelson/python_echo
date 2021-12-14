@@ -15,6 +15,7 @@ from util import say
 
 class DatabaseBatcher:
     def __init__(self, dbname, tablename):
+        self.cache = []
         self.tablename = tablename
         self.db = psycopg2.connect(database=dbname)
 
@@ -22,24 +23,28 @@ class DatabaseBatcher:
         return self.db
 
     # Data is a list of dicts mapping column name to value
+    def insert(self, record):
+        pass
+
     def insert_batch(self, recordlist):
         columns = set()
         for rec in recordlist:
             columns.update(rec.keys())
+        columns = list(columns)
 
         quoted_col_list = [f'"{col}"' for col in columns]
-        stmt = f'insert into {self.tablename} ({",".join(quoted)}) values %s'
+        stmt = f'insert into {self.tablename} ({",".join(quoted_col_list)}) values %s'
 
         values = []
         for rec in recordlist:
-            values.append([rec[col] if col in rec else None for col in self.column_list])
+            values.append([rec[col] if col in rec else None for col in columns])
 
         cursor = self.db.cursor()
 
         try:
             psycopg2.extras.execute_values(
                 cursor,
-                self.stmt,
+                stmt,
                 values,
                 template=None,
             )
