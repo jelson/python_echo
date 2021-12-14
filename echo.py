@@ -103,7 +103,7 @@ class ServerBaseMixIn:
         try:
             fields = self.parse_magic_header(s, data, debugstr)
             if fields:
-                fields['address'] = str(client_address)
+                fields['address'] = f"{client_address[0]}, {client_address[1]}"
                 self.stats.receive(fields, data)
 
         except Exception as e:
