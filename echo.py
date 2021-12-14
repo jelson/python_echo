@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
 
 import argparse
-import cherrypy
 import codecs
 import datetime
-import json
-import psycopg2
 import socket
 import socketserver
 import sys
-import tabulate
 import threading
 
-from util import say, LOGFILE_NAME
+from util import say
+from config import DBNAME, TABLENAME, DEFAULT_PORT
 import database
+import webserver
 
-DEFAULT_PORT = 7777
 MAGIC_HEADER = "magicheader"
-DBNAME = "echostats"
-TABLENAME = "receptions"
 
 class ConnStats:
     def __init__(self):
@@ -93,8 +88,8 @@ class ServerBaseMixIn:
             for numeric in ['packet_num', 'total_expected']:
                 fields[numeric] = int(fields[numeric])
             fields['payload_len'] = len(data)
-            say(f"{debugstr}: got magic header: {json.dumps(fields)}")
             fields['time'] = datetime.datetime.now()
+            say(f"{debugstr}: got magic header: {fields}")
             return fields
         else:
             return None
@@ -138,46 +133,6 @@ class Runner(threading.Thread):
         say(f"Starting {self.server.debugstr} on port {self.server.server_address}")
         self.server.serve_forever()
 
-class EchoWebHandler():
-    def __init__(self):
-        self.db = psycopg2.connect(database=DBNAME)
-
-    @cherrypy.expose
-    def log(self):
-        return "<pre>" + open(LOGFILE_NAME).read()
-
-    @cherrypy.expose
-    def summary(self):
-        style = """
-           <html>
-           <head>
-               <link rel="stylesheet" href="/echo-static/table.css">
-           </head>
-        """
-
-        stmt = """
-            SELECT
-               nonce AS "Nonce",
-               MIN(address) AS "IP Addr",
-               MIN("time") AS "First Packet",
-               MAX("time") AS "Last Packet",
-               MAX(total_expected) AS "Packets Expected",
-               COUNT(DISTINCT(packet_num)) AS "Unique Packets Received",
-               COUNT(*) AS "Received Incl. Duplicates"
-            FROM receptions
-            GROUP BY nonce
-            ORDER BY "First Packet" desc;
-        """
-        cursor = self.db.cursor()
-        cursor.execute(stmt)
-        result = cursor.fetchall()
-        self.db.commit()
-        return style + tabulate.tabulate(
-            result,
-            tablefmt='html',
-            headers=[desc[0] for desc in cursor.description],
-        )
-
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -198,9 +153,4 @@ if __name__ == "__main__":
     udp = Runner(ThreadedUDPEchoServer(('::', args.port), UDPEchoHandler))
     udp.start()
 
-    cherrypy.config.update({
-        'server.socket_host': '::',
-        'server.socket_port': args.port - DEFAULT_PORT + 16000,
-        'server.socket_timeout': 30,
-    })
-    cherrypy.quickstart(EchoWebHandler(), script_name='/echo')
+    webserver.Start(args)

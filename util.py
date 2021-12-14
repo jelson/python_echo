@@ -1,7 +1,8 @@
 import datetime
 import sys
 
-LOGFILE_NAME = "/mnt/storage/logs/echo/echolog"
+from config import LOGFILE_NAME
+
 logfile = open(LOGFILE_NAME, "a")
 
 def say(s):
