@@ -151,10 +151,7 @@ class EchoWebHandler():
         style = """
            <html>
            <head>
-           <style> 
-             table, th, td { border: 1px solid black; border-collapse: collapse; }
-             th, td { padding: 5px; }
-           </style>
+               <link rel="stylesheet" href="/echo-static/table.css">
            </head>
         """
 
@@ -174,10 +171,12 @@ class EchoWebHandler():
         cursor = self.db.cursor()
         cursor.execute(stmt)
         result = cursor.fetchall()
-        result.insert(0, [desc[0] for desc in cursor.description])
         self.db.commit()
-        return style + tabulate.tabulate(result, tablefmt='html')
-        
+        return style + tabulate.tabulate(
+            result,
+            tablefmt='html',
+            headers=[desc[0] for desc in cursor.description],
+        )
 
 def get_args():
     parser = argparse.ArgumentParser()
