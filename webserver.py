@@ -11,7 +11,12 @@ class EchoWebHandler():
 
     @cherrypy.expose
     def log(self):
-        return "<pre>" + open(LOGFILE_NAME).read()
+        with open(LOGFILE_NAME) as lf:
+            # seek 200k from the end
+            lf.seek(0, 2)
+            file_size = lf.tell()
+            lf.seek(file_size-200000, 0)
+            return "<h1>Most recent 200k of echo server log</h1>\n<pre>\n" + lf.read()
 
     @cherrypy.expose
     def summary(self):
